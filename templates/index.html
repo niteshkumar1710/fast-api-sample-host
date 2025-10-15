@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Broadcast Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .messages { 
+            border: 1px solid #ccc; 
+            height: 400px; 
+            overflow-y: scroll; 
+            padding: 10px; 
+            margin: 10px 0; 
+            background-color: #f9f9f9;
+        }
+        .message { 
+            margin: 5px 0; 
+            padding: 5px; 
+            border-radius: 3px; 
+        }
+        .system { background-color: #e7f3ff; }
+        .chat { background-color: #f0f8e7; }
+        .broadcast { background-color: #fff3cd; }
+        input[type="text"] { 
+            width: 70%; 
+            padding: 10px; 
+            margin: 5px; 
+        }
+        button { 
+            padding: 10px 15px; 
+            margin: 5px; 
+            cursor: pointer; 
+        }
+        .stats { 
+            background-color: #f8f9fa; 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin: 10px 0; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Broadcast Test</h1>
+        
+        <div class="stats" id="stats">
+            <strong>Connection Status:</strong> <span id="status">Disconnected</span><br>
+            <strong>Active Connections:</strong> <span id="connections">0</span><br>
+            <strong>Messages Sent:</strong> <span id="messageCount">0</span>
+        </div>
+        
+        <div class="messages" id="messages"></div>
+        
+        <div>
+            <input type="text" id="messageInput" placeholder="Enter your message..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()">Send Message</button>
+            <button onclick="connectWebSocket()">Connect</button>
+            <button onclick="disconnectWebSocket()">Disconnect</button>
+            <button onclick="sendBroadcastAPI()">Send via API</button>
+        </div>
+        
+        <div>
+            <h3>Send Broadcast via REST API:</h3>
+            <input type="text" id="apiMessage" placeholder="API broadcast message...">
+            <input type="text" id="apiSender" placeholder="Sender name..." value="API User">
+            <button onclick="sendRestBroadcast()">Send REST Broadcast</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+
+        function connectWebSocket() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                addMessage("Already connected!", "system");
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function(event) {
+                addMessage("Connected to WebSocket!", "system");
+                updateStatus("Connected");
+                updateStats();
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                addMessage(`[${data.sender}]: ${data.message}`, data.message_type);
+                messageCount++;
+                updateMessageCount();
+            };
+            
+            ws.onclose = function(event) {
+                addMessage("Disconnected from WebSocket", "system");
+                updateStatus("Disconnected");
+            };
+            
+            ws.onerror = function(error) {
+                addMessage("WebSocket error: " + error, "system");
+                updateStatus("Error");
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addMessage("Not connected to WebSocket!", "system");
+                return;
+            }
+            
+            const messageData = {
+                message: message,
+                sender: "You"
+            };
+            
+            ws.send(JSON.stringify(messageData));
+            input.value = '';
+        }
+
+        function sendRestBroadcast() {
+            const message = document.getElementById('apiMessage').value.trim();
+            const sender = document.getElementById('apiSender').value.trim() || "API User";
+            
+            if (!message) return;
+            
+            fetch('/broadcast', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    sender: sender,
+                    message_type: "api_broadcast"
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                addMessage(`REST API Response: ${data.message}`, "system");
+                document.getElementById('apiMessage').value = '';
+                updateStats();
+            })
+            .catch(error => {
+                addMessage(`REST API Error: ${error}`, "system");
+            });
+        }
+
+        function addMessage(message, type = "chat") {
+            const messages = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.innerHTML = `<small>${new Date().toLocaleTimeString()}</small> ${message}`;
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function updateStatus(status) {
+            document.getElementById('status').textContent = status;
+        }
+
+        function updateMessageCount() {
+            document.getElementById('messageCount').textContent = messageCount;
+        }
+
+        function updateStats() {
+            fetch('/stats')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('connections').textContent = data.active_connections;
+            })
+            .catch(error => console.error('Error fetching stats:', error));
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        // Auto-connect on page load
+        window.onload = function() {
+            connectWebSocket();
+            // Update stats every 5 seconds
+            setInterval(updateStats, 5000);
+        };
+    </script>
+</body>
+</html>
